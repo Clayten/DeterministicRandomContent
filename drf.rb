@@ -61,10 +61,10 @@ module DeterministicRandomContent
   # keygen - Derives the key + iv from the combined seed and length, stretched via sha256
   def self.keygen seed, length
     seed = "#{seed};#{length}"
-    hash = Digest::SHA256.hexdigest(seed)
-    key = hash[ 0...32]
-    iv  = hash[32...48]
-    puts "Creating #{length} bytes using [key: #{key}, iv: #{iv}] derived from seed: '#{seed}'"
+    hash = Digest::SHA256.digest(seed)
+    key = hash
+    iv  = Digest::SHA256.digest(hash)[0...16]
+    # puts "Creating #{length} bytes using [key: #{key.unpack('H*').first}, iv: #{iv.unpack('H*').first}] derived from seed: '#{seed}'"
     [key, iv]
   end
 
@@ -88,7 +88,7 @@ module DeterministicRandomContent
   # length - the expected stream length
   #
   # For each call, returns a block of cipher_text up to block_size in length
-  #                returns the empty string if the expected length has already been generated 
+  #                returns the empty string if the expected length has already been generated
   def self.generate_encryptor cipher, length, block_size: 16
     g = Fiber.new do
       block = "\0" * block_size
@@ -112,7 +112,7 @@ module DeterministicRandomContent
   # length - the expected stream length
   #
   # For each block, returns false if the text failed to decrypt properly
-  #                 returns :partial_result if it decrypts properly but isn't finished
+  #                 returns :partial_success if it decrypts properly but isn't finished
   #                 returns true if the text fully decrypted
   def self.generate_decryptor cipher, length
     g = Fiber.new do |cipher_text|
@@ -126,7 +126,7 @@ module DeterministicRandomContent
         plaintext = cipher.update cipher_text
         result = plaintext == "\0" * cipher_text.length
         failed = true unless result
-        return_value = failed ? false : remainder.zero? ? true : :partial_result
+        return_value = failed ? false : (remainder.zero? ? true : :partial_success)
         cipher_text = Fiber.yield(return_value)
       end
     end
@@ -136,7 +136,7 @@ module DeterministicRandomContent
     key, iv = keygen name, length
     cipher = create_encryptor key, iv
     encryptor = generate_encryptor cipher, length
-    File.open(name, 'w') {|fh|
+    File.open(name, 'wb') {|fh|
       while !(block = encryptor.resume).empty?
         fh.write block
       end
@@ -149,13 +149,11 @@ module DeterministicRandomContent
     key, iv = keygen name, length
     cipher = create_encryptor key, iv
     decryptor = generate_decryptor cipher, length
-    File.open(name, 'r') {|fh|
+    File.open(name, 'rb') {|fh|
       while !remainder.zero?
         read_size = [16, remainder].min
         block = fh.read read_size
-        p [:blk_length, block.length]
         result = decryptor.resume(block)
-        p [:verify_result, result]
         raise "File verify error at bytes #{(length - remainder) .. (length - remainder +16)}" unless result
         remainder -= read_size
       end
