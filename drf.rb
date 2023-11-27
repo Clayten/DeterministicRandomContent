@@ -10,12 +10,16 @@ require 'openssl/cipher'
 #
 module DeterministicRandomContent
 
+  # Optimized for the disk layer
+  #
+  BLOCK_SIZE rescue BLOCK_SIZE = 4096
+
   # Tests a round-trip, has ability to force the test to fail
   #
   # length: Total cipher text length
   # seed: The source for the key and iv
   # force_fail: Mutates the first character of the cipher text before decryption
-  # block_size: How much cipher text is generated at once
+  # block_size: How much cipher text is generated at once (uses a small value here for testing block boundaries)
   #
   def self.test seed: 'foobar', length: 35, force_fail: false, block_size: 16
     # derive a key+iv from the user's seed and file length
@@ -89,7 +93,7 @@ module DeterministicRandomContent
   #
   # For each call, returns a block of cipher_text up to block_size in length
   #                returns the empty string if the expected length has already been generated
-  def self.generate_encryptor cipher, length, block_size: 16
+  def self.generate_encryptor cipher, length, block_size: BLOCK_SIZE
     g = Fiber.new do
       block = "\0" * block_size
       remainder = length
@@ -151,10 +155,10 @@ module DeterministicRandomContent
     decryptor = generate_decryptor cipher, length
     File.open(name, 'rb') {|fh|
       while !remainder.zero?
-        read_size = [16, remainder].min
+        read_size = [BLOCK_SIZE, remainder].min
         block = fh.read read_size
         result = decryptor.resume(block)
-        raise "File verify error at bytes #{(length - remainder) .. (length - remainder +16)}" unless result
+        raise "File #{name} - verify error at bytes #{(length - remainder) .. (length - remainder + BLOCK_SIZE)}" unless result
         remainder -= read_size
       end
     }
