@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 
 require 'digest/sha2'
+require 'openssl'
 require 'openssl/cipher'
 
 # DeterministicRandomContent - Generate random content via a cipher so it can be recreated later for checking for data corruption
